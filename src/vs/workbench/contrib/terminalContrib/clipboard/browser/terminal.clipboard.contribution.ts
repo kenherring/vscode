@@ -44,6 +44,7 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 	readonly onWillPaste = this._onWillPaste.event;
 	private readonly _onDidPaste = this._register(new Emitter<string>());
 	readonly onDidPaste = this._onDidPaste.event;
+	private _previousSelection: string | undefined = undefined;
 
 	constructor(
 		private readonly _ctx: ITerminalContributionContext | IDetachedCompatibleTerminalContributionContext,
@@ -65,6 +66,9 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 				if (this._overrideCopySelection === false) {
 					return;
 				}
+				if (this._previousSelection === this._ctx.instance.selection) {
+					return;
+				}
 				if (this._ctx.instance.hasSelection()) {
 					await this.copySelection();
 				}
@@ -75,6 +79,7 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 	async copySelection(asHtml?: boolean, command?: ITerminalCommand): Promise<void> {
 		// TODO: Confirm this is fine that it's no longer awaiting xterm promise
 		this._xterm?.copySelection(asHtml, command);
+		this._previousSelection = this._ctx?.instance.selection;
 	}
 
 	/**
