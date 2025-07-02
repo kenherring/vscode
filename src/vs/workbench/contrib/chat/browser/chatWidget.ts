@@ -715,9 +715,15 @@ export class ChatWidget extends Disposable implements IChatWidget {
 		// reset the input in welcome view if it was rendered in experimental mode
 		if (this.container.classList.contains('experimental-welcome-view')) {
 			this.container.classList.remove('experimental-welcome-view');
+			// Preserve the current mode before recreating the input
+			const currentMode = this.input?.currentModeKind;
 			const renderFollowups = this.viewOptions.renderFollowups ?? false;
 			const renderStyle = this.viewOptions.renderStyle;
 			this.createInput(this.container, { renderFollowups, renderStyle });
+			// Restore the mode after recreating the input
+			if (currentMode && this.input) {
+				this.input.setChatMode(currentMode, false);
+			}
 		}
 
 		if (this.viewOptions.renderStyle === 'compact' || this.viewOptions.renderStyle === 'minimal') {
@@ -788,7 +794,7 @@ export class ChatWidget extends Disposable implements IChatWidget {
 	private getExpWelcomeViewContent(): IChatViewWelcomeContent {
 		const baseMessage = localize('chatMessage', "Copilot is powered by AI, so mistakes are possible. Review output carefully before use.");
 		const welcomeContent = {
-			title: 'Get Started with VS Code',
+			title: localize('expChatTitle', 'Get Started with VS Code'),
 			message: new MarkdownString(baseMessage),
 			icon: Codicon.copilotLarge,
 			suggestedPrompts: this.getExpSuggestedPrompts(),
@@ -1088,13 +1094,15 @@ export class ChatWidget extends Disposable implements IChatWidget {
 		if (!isInput) {
 			this.inputPart?.toggleChatInputOverlay(false);
 			try {
-				editedRequest?.rowContainer.removeChild(this.inputContainer);
-			} catch (e) {
-				if (this.inputContainer.parentElement) {
+				if (editedRequest?.rowContainer && editedRequest.rowContainer.contains(this.inputContainer)) {
+					editedRequest.rowContainer.removeChild(this.inputContainer);
+				} else if (this.inputContainer.parentElement) {
 					this.inputContainer.parentElement.removeChild(this.inputContainer);
 				}
-				this.inputContainer = null!;
+			} catch (e) {
+				this.logService.error('Error occurred while finishing editing:', e);
 			}
+			this.inputContainer = dom.$('.empty-chat-state');
 		}
 		if (isInput) {
 			this.inputPart.element.classList.remove('editing');
@@ -1723,7 +1731,14 @@ export class ChatWidget extends Disposable implements IChatWidget {
 		if (this.viewModel?.editing) {
 			this.inlineInputPart?.layout(layoutHeight, width);
 		}
-		this.inputPart.layout(layoutHeight, width);
+
+		if (this.container.classList.contains('experimental-welcome-view')) {
+			this.inputPart.layout(layoutHeight, Math.min(width, 650));
+		}
+		else {
+			this.inputPart.layout(layoutHeight, width);
+		}
+
 		const inputHeight = this.inputPart.inputPartHeight;
 		const lastElementVisible = this.tree.scrollTop + this.tree.renderHeight >= this.tree.scrollHeight - 2;
 
