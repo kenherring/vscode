@@ -97,6 +97,15 @@ export class TerminalFindWidget extends SimpleFindWidget {
 			}
 		}));
 
+		const instance = TerminalClipboardContribution.get(this._instance);
+		if (instance) {
+			this._register(instance.onWillPaste(() => {
+				instance.notify('onWillPaste-1');
+				this._overrideCopyOnSelectionDisposable = TerminalClipboardContribution.get(this._instance)?.overrideCopyOnSelection(false);
+			}));
+		}
+
+
 		this.updateResultCount();
 	}
 
@@ -150,6 +159,8 @@ export class TerminalFindWidget extends SimpleFindWidget {
 		// Ignore input changes for now
 		const xterm = this._instance.xterm;
 		if (xterm) {
+			// TerminalClipboardContribution.get(this._instance)?.notify('_onInputChanged-1');
+			this._overrideCopyOnSelectionDisposable?.dispose();
 			this._findPreviousWithEvent(xterm, this.inputValue, { regex: this._getRegexValue(), wholeWord: this._getWholeWordValue(), caseSensitive: this._getCaseSensitiveValue(), incremental: true }).then(foundMatch => {
 				this.updateButtons(foundMatch);
 			});
@@ -158,14 +169,17 @@ export class TerminalFindWidget extends SimpleFindWidget {
 	}
 
 	protected _onFocusTrackerFocus() {
-		if ('overrideCopyOnSelection' in this._instance) {
+		TerminalClipboardContribution.get(this._instance)?.notify('_onFocusTrackerFocus-1');
+		if (TerminalClipboardContribution.get(this._instance)?.overrideCopyOnSelection) {
+			// TerminalClipboardContribution.get(this._instance)?.notify('_onFocusTrackerFocus-2');
 			this._overrideCopyOnSelectionDisposable = TerminalClipboardContribution.get(this._instance)?.overrideCopyOnSelection(false);
 		}
 		this._findWidgetFocused.set(true);
 	}
 
 	protected _onFocusTrackerBlur() {
-		this._overrideCopyOnSelectionDisposable?.dispose();
+		TerminalClipboardContribution.get(this._instance)?.notify('_onFocusTrackerBlur-1');
+		// this._overrideCopyOnSelectionDisposable?.dispose();
 		this._instance.xterm?.clearActiveSearchDecoration();
 		this._findWidgetFocused.reset();
 	}

@@ -26,6 +26,8 @@ import { KeyCode, KeyMod } from '../../../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { terminalStrings } from '../../../terminal/common/terminalStrings.js';
 import { isString } from '../../../../../base/common/types.js';
+// eslint-disable-next-line local/code-import-patterns
+import * as fs from 'fs';
 
 // #region Terminal Contributions
 
@@ -39,12 +41,12 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 	private _xterm: IXtermTerminal & { raw: RawXtermTerminal } | undefined;
 
 	private _overrideCopySelection: boolean | undefined = undefined;
+	// private _overrideCopyOnSelectionDisposable: IDisposable | undefined = undefined;
 
 	private readonly _onWillPaste = this._register(new Emitter<string>());
 	readonly onWillPaste = this._onWillPaste.event;
 	private readonly _onDidPaste = this._register(new Emitter<string>());
 	readonly onDidPaste = this._onDidPaste.event;
-	private _previousSelection: string | undefined = undefined;
 
 	constructor(
 		private readonly _ctx: ITerminalContributionContext | IDetachedCompatibleTerminalContributionContext,
@@ -57,16 +59,23 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 		super();
 	}
 
+	notify(event: string) {
+		this._notificationService.info(event);
+		event = '[' + (new Date()).toISOString() + '] ' + event;
+		const text = fs.readFileSync('C:\\Users\\kenne\\vscode-paste.log').toString() + event + '\n';
+		fs.writeFileSync('C:\\Users\\kenne\\vscode-paste.log', new TextEncoder().encode(text));
+	}
+
 	xtermReady(xterm: IXtermTerminal & { raw: RawXtermTerminal }): void {
 		this._xterm = xterm;
 		// TODO: This should be a different event on xterm, copying html should not share the requesting run command event
 		this._register(xterm.onDidRequestCopyAsHtml(e => this.copySelection(true, e.command)));
 		this._register(xterm.raw.onSelectionChange(async () => {
 			if (this._configurationService.getValue(TerminalSettingId.CopyOnSelection)) {
+				// this._notificationService.info('copySelection.1 triggered by selection change override=' + this._overrideCopySelection + ', hasSelection=' + this._ctx.instance.hasSelection());
+				this.notify('copySelection.2 triggered by selection change override=' + this._overrideCopySelection + ', hasSelection=' + this._ctx.instance.hasSelection());
 				if (this._overrideCopySelection === false) {
-					return;
-				}
-				if (this._previousSelection === this._ctx.instance.selection) {
+					// this._overrideCopyOnSelectionDisposable?.dispose();
 					return;
 				}
 				if (this._ctx.instance.hasSelection()) {
@@ -74,26 +83,48 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 				}
 			}
 		}));
+		// this._register(xterm.onDidChangeFindResults(() => {
+		// 	this._overrideCopyOnSelectionDisposable?.dispose();
+		// }));
 	}
 
 	async copySelection(asHtml?: boolean, command?: ITerminalCommand): Promise<void> {
 		// TODO: Confirm this is fine that it's no longer awaiting xterm promise
+
+		// this._notificationService.info('Copying selection to clipboard? override=' + this._overrideCopySelection);
+		// if (this._overrideCopySelection === false) {
+		// 	this._notificationService.info('Copy on selection override is false, not copying');
+		// 	return;
+		// }
+
 		this._xterm?.copySelection(asHtml, command);
-		this._previousSelection = this._ctx?.instance.selection;
+		this._notificationService.info('new selection=' + this._ctx?.instance.selection);
 	}
 
 	/**
 	 * Focuses and pastes the contents of the clipboard into the terminal instance.
 	 */
 	async paste(): Promise<void> {
+		// this._overrideCopyOnSelectionDisposable =
+		this.notify('paste-2');
+		this.overrideCopyOnSelection(false);
 		await this._paste(await this._clipboardService.readText());
+		// .then(() => {
+		// 	this._overrideCopyOnSelectionDisposable?.dispose();
+		// });
 	}
 
 	/**
 	 * Focuses and pastes the contents of the selection clipboard into the terminal instance.
 	 */
 	async pasteSelection(): Promise<void> {
+		this.notify('pasteSelection-1');
+		// this._overrideCopyOnSelectionDisposable = this.overrideCopyOnSelection(false);
+		this.overrideCopyOnSelection(false);
 		await this._paste(await this._clipboardService.readText('selection'));
+		// .then(() => {
+		// 	this._overrideCopyOnSelectionDisposable?.dispose();
+		// });
 	}
 
 	private async _paste(value: string): Promise<void> {
@@ -106,6 +137,8 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 		if (!shouldPasteText) {
 			return;
 		}
+
+		this.notify('paste-3');
 
 		if (typeof shouldPasteText === 'object') {
 			currentText = shouldPasteText.modifiedText;
@@ -163,11 +196,17 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 	 * @param value Whether to enable copySelection.
 	 */
 	overrideCopyOnSelection(value: boolean): IDisposable {
+		this._notificationService.info('overrideCopyOnSelection=' + value);
 		if (this._overrideCopySelection !== undefined) {
+			this._notificationService.warn('Cannot set a copy on selection override multiple times');
 			throw new Error('Cannot set a copy on selection override multiple times');
 		}
 		this._overrideCopySelection = value;
-		return toDisposable(() => this._overrideCopySelection = undefined);
+		this._notificationService.info('this._overrideCopySelection=' + this._overrideCopySelection);
+		return toDisposable(() => {
+			this._notificationService.info('Clearing overrideCopyOnSelection');
+			this._overrideCopySelection = undefined;
+		});
 	}
 }
 
@@ -299,7 +338,16 @@ if (BrowserFeatures.clipboard.readText) {
 			weight: KeybindingWeight.WorkbenchContrib,
 			when: TerminalContextKeys.focus
 		}],
-		run: (activeInstance) => TerminalClipboardContribution.get(activeInstance)?.paste()
+		run: (activeInstance) => {
+			// const overrideCopyOnSelectionDisposable = TerminalClipboardContribution.get(activeInstance)?.overrideCopyOnSelection(false);
+			// TerminalClipboardContribution.get(activeInstance)?.overrideCopyOnSelection(false);
+
+			TerminalClipboardContribution.get(activeInstance)?.notify('paste-1');
+			return TerminalClipboardContribution.get(activeInstance)?.paste();
+			// .then(() => {
+			// 	overrideCopyOnSelectionDisposable?.dispose();
+			// });
+		}
 	});
 }
 
@@ -313,7 +361,11 @@ if (BrowserFeatures.clipboard.readText && isLinux) {
 			weight: KeybindingWeight.WorkbenchContrib,
 			when: TerminalContextKeys.focus
 		}],
-		run: (activeInstance) => TerminalClipboardContribution.get(activeInstance)?.pasteSelection()
+		run: (activeInstance) => {
+
+			TerminalClipboardContribution.get(activeInstance)?.notify('paste-4');
+			return TerminalClipboardContribution.get(activeInstance)?.pasteSelection();
+		}
 	});
 }
 

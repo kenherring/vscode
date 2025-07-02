@@ -268,6 +268,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 				this._anyFocusedTerminalHasSelection.set(this.raw.hasSelection());
 			}
 		}));
+
 		this._register(this.raw.onData(e => this._lastInputEvent = e));
 
 		// Load addons
@@ -652,6 +653,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	async copySelection(asHtml?: boolean, command?: ITerminalCommand): Promise<void> {
+		this._notificationService.info('xterm.copySelection asHtml=' + asHtml + ', command=' + command);
 		if (this.hasSelection() || (asHtml && command)) {
 			if (asHtml) {
 				const textAsHtml = await this.getSelectionAsHtml(command);
@@ -667,6 +669,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 				doc.execCommand('copy');
 				doc.removeEventListener('copy', listener);
 			} else {
+				this._notificationService.info('xterm.copySelection command=' + command + ',selection=' + this.raw.getSelection());
 				await this._clipboardService.writeText(this.raw.getSelection());
 			}
 		} else {
