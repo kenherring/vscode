@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import type { Terminal as RawXtermTerminal } from '@xterm/xterm';
+import type { IBufferRange, Terminal as RawXtermTerminal } from '@xterm/xterm';
 import { Disposable, toDisposable, type IDisposable } from '../../../../../base/common/lifecycle.js';
 import { IClipboardService } from '../../../../../platform/clipboard/common/clipboardService.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
@@ -39,6 +39,8 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 	private _xterm: IXtermTerminal & { raw: RawXtermTerminal } | undefined;
 
 	private _overrideCopySelection: boolean | undefined = undefined;
+	private _previousSelection: string | undefined = undefined;
+	private _previousSelectionPosition: IBufferRange | undefined = undefined;
 
 	private readonly _onWillPaste = this._register(new Emitter<string>());
 	readonly onWillPaste = this._onWillPaste.event;
@@ -65,7 +67,12 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 				if (this._overrideCopySelection === false) {
 					return;
 				}
+				if (xterm.raw.getSelection() === this._previousSelection && JSON.stringify(xterm.raw.getSelectionPosition()) === JSON.stringify(this._previousSelectionPosition)) {
+					return;
+				}
 				if (this._ctx.instance.hasSelection()) {
+					this._previousSelection = xterm.raw.getSelection();
+					this._previousSelectionPosition = xterm.raw.getSelectionPosition();
 					await this.copySelection();
 				}
 			}
