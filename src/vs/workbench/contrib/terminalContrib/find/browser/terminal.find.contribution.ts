@@ -20,8 +20,11 @@ import { TerminalContextKeys } from '../../../terminal/common/terminalContextKey
 import { TerminalFindCommandId } from '../common/terminal.find.js';
 import './media/terminalFind.css';
 import { TerminalFindWidget } from './terminalFindWidget.js';
+import { ITerminalLogService } from '../../../../../platform/terminal/common/terminal.js';
 
 // #region Terminal Contributions
+
+let logService: ITerminalLogService | undefined = undefined;
 
 class TerminalFindContribution extends Disposable implements ITerminalContribution {
 	static readonly ID = 'terminal.find';
@@ -45,14 +48,17 @@ class TerminalFindContribution extends Disposable implements ITerminalContributi
 		ctx: ITerminalContributionContext | IDetachedCompatibleTerminalContributionContext,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@ITerminalService terminalService: ITerminalService,
+		@ITerminalLogService private _logService: ITerminalLogService,
 	) {
 		super();
-
+		this._logService.info('[TerminalFindContribution] constructor');
+		logService = _logService;
 		this._findWidget = new Lazy(() => {
 			const findWidget = instantiationService.createInstance(TerminalFindWidget, ctx.instance);
 
 			// Track focus and set state so we can force the scroll bar to be visible
 			findWidget.focusTracker.onDidFocus(() => {
+				this._logService.info('[TerminalFindContribution] findWidget onDidFocus');
 				TerminalFindContribution.activeFindWidget = this;
 				ctx.instance.forceScrollbarVisibility();
 				if (!isDetachedTerminalInstance(ctx.instance)) {
@@ -60,6 +66,7 @@ class TerminalFindContribution extends Disposable implements ITerminalContributi
 				}
 			});
 			findWidget.focusTracker.onDidBlur(() => {
+				this._logService.info('[TerminalFindContribution] findWidget onDidBlur');
 				TerminalFindContribution.activeFindWidget = undefined;
 				ctx.instance.resetScrollbarVisibility();
 			});
@@ -78,11 +85,13 @@ class TerminalFindContribution extends Disposable implements ITerminalContributi
 	}
 
 	layout(_xterm: IXtermTerminal & { raw: RawXtermTerminal }, dimension: IDimension): void {
+		this._logService.info('[TerminalFindContribution] layout');
 		this._lastLayoutDimensions = dimension;
 		this._findWidget.rawValue?.layout(dimension.width);
 	}
 
 	xtermReady(xterm: IXtermTerminal & { raw: RawXtermTerminal }): void {
+		this._logService.info('[TerminalFindContribution] xtermReady');
 		this._register(xterm.onDidChangeFindResults(() => this._findWidget.rawValue?.updateResultCount()));
 	}
 
@@ -111,6 +120,7 @@ registerActiveXtermAction({
 	},
 	precondition: ContextKeyExpr.or(TerminalContextKeys.processSupported, TerminalContextKeys.terminalHasBeenCreated),
 	run: (_xterm, _accessor, activeInstance) => {
+		logService?.info('[TerminalFindCommandId.FindFocus] workbench.action.terminal.focusFind');
 		const contr = TerminalFindContribution.activeFindWidget || TerminalFindContribution.get(activeInstance);
 		contr?.findWidget.reveal();
 	}
@@ -127,6 +137,7 @@ registerActiveXtermAction({
 	},
 	precondition: ContextKeyExpr.or(TerminalContextKeys.processSupported, TerminalContextKeys.terminalHasBeenCreated),
 	run: (_xterm, _accessor, activeInstance) => {
+		logService?.info('[TerminalFindCommandId.FindFocus] workbench.action.terminal.hideFind');
 		const contr = TerminalFindContribution.activeFindWidget || TerminalFindContribution.get(activeInstance);
 		contr?.findWidget.hide();
 	}
@@ -143,6 +154,7 @@ registerActiveXtermAction({
 	},
 	precondition: ContextKeyExpr.or(TerminalContextKeys.processSupported, TerminalContextKeys.terminalHasBeenCreated),
 	run: (_xterm, _accessor, activeInstance) => {
+		logService?.info('[TerminalFindCommandId.FindFocus] workbench.action.terminal.toggleFindRegex');
 		const contr = TerminalFindContribution.activeFindWidget || TerminalFindContribution.get(activeInstance);
 		const state = contr?.findWidget.state;
 		state?.change({ isRegex: !state.isRegex }, false);
@@ -160,6 +172,7 @@ registerActiveXtermAction({
 	},
 	precondition: ContextKeyExpr.or(TerminalContextKeys.processSupported, TerminalContextKeys.terminalHasBeenCreated),
 	run: (_xterm, _accessor, activeInstance) => {
+		logService?.info('[TerminalFindCommandId.FindFocus] workbench.action.terminal.toggleFindWholeWord');
 		const contr = TerminalFindContribution.activeFindWidget || TerminalFindContribution.get(activeInstance);
 		const state = contr?.findWidget.state;
 		state?.change({ wholeWord: !state.wholeWord }, false);
@@ -177,6 +190,7 @@ registerActiveXtermAction({
 	},
 	precondition: ContextKeyExpr.or(TerminalContextKeys.processSupported, TerminalContextKeys.terminalHasBeenCreated),
 	run: (_xterm, _accessor, activeInstance) => {
+		logService?.info('[TerminalFindCommandId.FindFocus] workbench.action.terminal.toggleFindCaseSensitive');
 		const contr = TerminalFindContribution.activeFindWidget || TerminalFindContribution.get(activeInstance);
 		const state = contr?.findWidget.state;
 		state?.change({ matchCase: !state.matchCase }, false);
@@ -201,6 +215,7 @@ registerActiveXtermAction({
 	],
 	precondition: ContextKeyExpr.or(TerminalContextKeys.processSupported, TerminalContextKeys.terminalHasBeenCreated),
 	run: (_xterm, _accessor, activeInstance) => {
+		logService?.info('[TerminalFindCommandId.FindFocus] workbench.action.terminal.findNext');
 		const contr = TerminalFindContribution.activeFindWidget || TerminalFindContribution.get(activeInstance);
 		const widget = contr?.findWidget;
 		if (widget) {
@@ -228,6 +243,7 @@ registerActiveXtermAction({
 	],
 	precondition: ContextKeyExpr.or(TerminalContextKeys.processSupported, TerminalContextKeys.terminalHasBeenCreated),
 	run: (_xterm, _accessor, activeInstance) => {
+		logService?.info('[TerminalFindCommandId.FindFocus] workbench.action.terminal.findPrevious');
 		const contr = TerminalFindContribution.activeFindWidget || TerminalFindContribution.get(activeInstance);
 		const widget = contr?.findWidget;
 		if (widget) {
@@ -248,7 +264,10 @@ registerActiveInstanceAction({
 			weight: KeybindingWeight.WorkbenchContrib + 50
 		}
 	],
-	run: (activeInstance, c, accessor) => findInFilesCommand(accessor, { query: activeInstance.selection })
+	run: (activeInstance, c, accessor) => {
+		logService?.info('[TerminalFindCommandId.FindFocus] workbench.action.terminal.searchWorkspace');
+		return findInFilesCommand(accessor, { query: activeInstance.selection });
+	}
 });
 
 // #endregion

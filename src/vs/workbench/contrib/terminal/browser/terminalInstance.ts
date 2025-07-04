@@ -200,6 +200,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	private readonly _scopedContextKeyService: IContextKeyService;
 	private _resizeDebouncer?: TerminalResizeDebouncer;
 	private _pauseInputEventBarrier: Barrier | undefined;
+	private _isKeydown: boolean = false;
 	pauseInputEvents(barrier: Barrier): void {
 		this._pauseInputEventBarrier = barrier;
 	}
@@ -398,6 +399,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	) {
 		super();
 
+		this._logService.info('[terminalInstance] constructor');
 		this._wrapperElement = document.createElement('div');
 		this._wrapperElement.classList.add('terminal-wrapper');
 
@@ -845,7 +847,14 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 				this._accessibilitySignalService.playSignal(AccessibilitySignal.terminalBell);
 			}));
 		}, 1000, this._store);
-		this._register(xterm.raw.onSelectionChange(() => this._onDidChangeSelection.fire(this)));
+		this._register(xterm.raw.onSelectionChange(async () => {
+
+			this._logService.info('[terminalInstance] raw.onSelectionChange this._isKeydown=' + this._isKeydown);
+			// await this._xtermReadyPromise;
+			// if (!this._isKeydown) {
+				return this._onDidChangeSelection.fire(this);
+			// }
+		}));
 		this._register(xterm.raw.buffer.onBufferChange(() => this._refreshAltBufferContextKey()));
 
 		this._register(this._processManager.onProcessData(e => this._onProcessData(e)));
@@ -920,6 +929,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	async runCommand(commandLine: string, shouldExecute: boolean): Promise<void> {
+		this._logService.info('[terminalInstance] runCommand commandLine=' + commandLine);
 		let commandDetection = this.capabilities.get(TerminalCapability.CommandDetection);
 
 		// Await command detection if the terminal is starting up
@@ -1126,9 +1136,13 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 			return true;
 		});
 		this._register(dom.addDisposableListener(xterm.raw.element, 'mousedown', () => {
+
+			this._logService.info('[terminalInstance] mousedown');
 			// We need to listen to the mouseup event on the document since the user may release
 			// the mouse button anywhere outside of _xterm.element.
 			const listener = dom.addDisposableListener(xterm.raw.element!.ownerDocument, 'mouseup', () => {
+
+				this._logService.info('[terminalInstance] mouseup');
 				// Delay with a setTimeout to allow the mouseup to propagate through the DOM
 				// before evaluating the new selection state.
 				setTimeout(() => this._refreshSelectionContextKey(), 0);
@@ -1139,8 +1153,24 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 			xterm.raw.focus();
 		}));
 
+		// this._register(dom.addDisposableListener(xterm.raw.element, 'keydown', (e: MouseEvent) => {
+		// 	this._logService.info('[terminalInstance] keydown.1');
+		// 	this._isKeydown = true;
+		// 	const listener = dom.addDisposableListener(xterm.raw.element!.ownerDocument, 'keyup', () => {
+
+		// 		this._logService.info('[terminalInstance] keydown.2 (keyup)');
+		// 		this._isKeydown = false;
+		// 		// Delay with a setTimeout to allow the mouseup to propagate through the DOM
+		// 		// before evaluating the new selection state.
+
+		// 		listener.dispose();
+		// 	});
+
+		// }));
+
 		// xterm.js currently drops selection on keyup as we need to handle this case.
 		this._register(dom.addDisposableListener(xterm.raw.element, 'keyup', () => {
+			this._logService.info('[terminalInstance] keyup.1');
 			// Wait until keyup has propagated through the DOM before evaluating
 			// the new selection state.
 			setTimeout(() => this._refreshSelectionContextKey(), 0);
@@ -1167,6 +1197,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	private _setFocus(focused?: boolean): void {
+		this._logService.info('[terminalInstance] setFocus focused=' + focused);
 		if (focused) {
 			this._terminalFocusContextKey.set(true);
 			this._setShellIntegrationContextKey();
@@ -1185,6 +1216,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	resetFocusContextKey(): void {
+		this._logService.info('[terminalInstance] resetFocusContextKey');
 		this._terminalFocusContextKey.reset();
 		this._terminalShellIntegrationEnabledContextKey.reset();
 	}
@@ -1202,18 +1234,28 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	hasSelection(): boolean {
-		return this.xterm ? this.xterm.raw.hasSelection() : false;
+		const hasSelection = this.xterm ? this.xterm.raw.hasSelection() : false;
+		this._logService.info('[terminalInstance] hasSelection=' + hasSelection);
+		return hasSelection;
 	}
 
 	get selection(): string | undefined {
+		this._logService.info('[terminalInstance] getSelection');
 		return this.xterm && this.hasSelection() ? this.xterm.raw.getSelection() : undefined;
 	}
 
+	// get selectionPosition(): IBufferRange | undefined {
+	// 	this._logService.info('[terminalInstance] getSelectionPosition');
+	// 	return this.xterm && this.hasSelection() ? this.xterm.raw.getSelectionPosition() : undefined;;
+	// }
+
 	clearSelection(): void {
+		this._logService.info('[terminalInstance] clearSelection');
 		this.xterm?.raw.clearSelection();
 	}
 
 	private _refreshAltBufferContextKey() {
+		this._logService.info('[terminalInstance] _refreshAltBufferContextKey');
 		this._terminalAltBufferActiveContextKey.set(!!(this.xterm && this.xterm.raw.buffer.active === this.xterm.raw.buffer.alternate));
 	}
 
@@ -1281,6 +1323,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	focus(force?: boolean): void {
+		this._logService.info('[terminalInstance] focus force=' + force);
 		this._refreshAltBufferContextKey();
 		if (!this.xterm) {
 			return;
@@ -1292,12 +1335,14 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	async focusWhenReady(force?: boolean): Promise<void> {
+		this._logService.info('[terminalInstance] focusWhenReady force=' + force);
 		await this._xtermReadyPromise;
 		await this._attachBarrier.wait();
 		this.focus(force);
 	}
 
 	async sendText(text: string, shouldExecute: boolean, bracketedPasteMode?: boolean): Promise<void> {
+		this._logService.info('[terminalInstance] sendText text=' + text);
 		// Apply bracketed paste sequences if the terminal has the mode enabled, this will prevent
 		// the text from triggering keybindings and ensure new lines are handled properly
 		if (bracketedPasteMode && this.xterm?.raw.modes.bracketedPasteMode) {
@@ -1322,6 +1367,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	async sendSignal(signal: string): Promise<void> {
+		this._logService.info('[terminalInstance] sendSignal signal=' + signal);
 		this._logService.debug('sending signal (vscode)', signal);
 		await this._processManager.sendSignal(signal);
 	}
@@ -1379,18 +1425,23 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	clearBuffer(): void {
+		this._logService.info('[terminalInstance] clearBuffer');
 		this._processManager.clearBuffer();
 		this.xterm?.clearBuffer();
 	}
 
 	private _refreshSelectionContextKey() {
+		this._logService.info('[terminalInstance] refreshSelectionContextKey');
 		const isActive = !!this._viewsService.getActiveViewWithId(TERMINAL_VIEW_ID);
 		let isEditorActive = false;
 		const editor = this._editorService.activeEditor;
 		if (editor) {
 			isEditorActive = editor instanceof TerminalEditorInput;
 		}
+		this._logService.info(`[terminalInstance] refreshSelectionContextKey get.1=${JSON.stringify(this._terminalHasTextContextKey.get())}`);
+		this._logService.info(`[terminalInstance] refreshSelectionContextKey isActive=${isActive}, isEditorActive=${isEditorActive}, hasSelection=${this.hasSelection()}`);
 		this._terminalHasTextContextKey.set((isActive || isEditorActive) && this.hasSelection());
+		this._logService.info(`[terminalInstance] refreshSelectionContextKey get.2=${JSON.stringify(this._terminalHasTextContextKey.get())}`);
 	}
 
 	protected _createProcessManager(): TerminalProcessManager {
@@ -1543,14 +1594,17 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	public registerMarker(offset?: number): IMarker | undefined {
+		this._logService.info('[terminalInstance] registerMarker');
 		return this.xterm?.raw.registerMarker(offset);
 	}
 
 	public addBufferMarker(properties: IMarkProperties): void {
+		this._logService.info('[terminalInstance] addBufferMarker');
 		this.capabilities.get(TerminalCapability.BufferMarkDetection)?.addMark(properties);
 	}
 
 	public scrollToMark(startMarkId: string, endMarkId?: string, highlight?: boolean): void {
+		this._logService.info('[terminalInstance] scrollToMark');
 		this.xterm?.markTracker.scrollToClosestMarker(startMarkId, endMarkId, highlight);
 	}
 
@@ -1560,6 +1614,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	private _onProcessData(ev: IProcessDataEvent): void {
+		this._logService.info('[terminalInstance] _onProcessData');
 		// Ensure events are split by SI command execute and command finished sequence to ensure the
 		// output of the command can be read by extensions and the output of the command is of a
 		// consistent form respectively. This must be done here as xterm.js does not currently have
@@ -1591,6 +1646,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	private _writeProcessData(data: string, cb?: () => void) {
+		this._logService.info('[terminalInstance] _writeProcessData');
 		this._onWillData.fire(data);
 		const messageId = ++this._latestXtermWriteData;
 		this.xterm?.raw.write(data, () => {
@@ -2107,6 +2163,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	private _refreshScrollbar(): Promise<void> {
+		this._logService.info('[terminalInstance] refreshScrollBar');
 		if (this._fixedCols || this._fixedRows) {
 			return this._addScrollbar();
 		}
@@ -2244,11 +2301,13 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	private async _refreshProperty<T extends ProcessPropertyType>(type: T): Promise<IProcessPropertyMap[T]> {
+		this._logService.info('[terminalInstance] refreshPropert');
 		await this.processReady;
 		return this._processManager.refreshProperty(type);
 	}
 
 	private async _updateProperty<T extends ProcessPropertyType>(type: T, value: IProcessPropertyMap[T]): Promise<void> {
+		this._logService.info('[terminalInstance] updateProperty');
 		return this._processManager.updateProperty(type, value);
 	}
 
@@ -2347,10 +2406,12 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	}
 
 	setParentContextKeyService(parentContextKeyService: IContextKeyService): void {
+		this._logService.info('[terminalInstance] setParentContextKeyService');
 		this._scopedContextKeyService.updateParent(parentContextKeyService);
 	}
 
 	async handleMouseEvent(event: MouseEvent, contextMenu: IMenu): Promise<{ cancelContextMenu: boolean } | void> {
+		this._logService.info('[terminalInstance] handleMouseEvent');
 		// Don't handle mouse event if it was on the scroll bar
 		if (dom.isHTMLElement(event.target) && (event.target.classList.contains('scrollbar') || event.target.classList.contains('slider'))) {
 			return { cancelContextMenu: true };

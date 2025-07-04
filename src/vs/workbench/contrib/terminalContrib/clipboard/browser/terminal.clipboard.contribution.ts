@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import type { Terminal as RawXtermTerminal } from '@xterm/xterm';
+import type { IBufferRange, Terminal as RawXtermTerminal } from '@xterm/xterm';
 import { Disposable, toDisposable, type IDisposable } from '../../../../../base/common/lifecycle.js';
 import { IClipboardService } from '../../../../../platform/clipboard/common/clipboardService.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
@@ -14,7 +14,7 @@ import { Emitter } from '../../../../../base/common/event.js';
 import { BrowserFeatures } from '../../../../../base/browser/canIUse.js';
 import { TerminalCapability, type ITerminalCommand } from '../../../../../platform/terminal/common/capabilities/capabilities.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
-import { TerminalSettingId } from '../../../../../platform/terminal/common/terminal.js';
+import { ITerminalLogService, TerminalSettingId } from '../../../../../platform/terminal/common/terminal.js';
 import { isLinux, isMacintosh } from '../../../../../base/common/platform.js';
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { registerActiveInstanceAction, registerActiveXtermAction } from '../../../terminal/browser/terminalActions.js';
@@ -26,10 +26,10 @@ import { KeyCode, KeyMod } from '../../../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { terminalStrings } from '../../../terminal/common/terminalStrings.js';
 import { isString } from '../../../../../base/common/types.js';
-// eslint-disable-next-line local/code-import-patterns
-import * as fs from 'fs';
 
 // #region Terminal Contributions
+
+let logService: ITerminalLogService | undefined = undefined;
 
 export class TerminalClipboardContribution extends Disposable implements ITerminalContribution {
 	static readonly ID = 'terminal.clipboard';
@@ -48,37 +48,110 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 	private readonly _onDidPaste = this._register(new Emitter<string>());
 	readonly onDidPaste = this._onDidPaste.event;
 
+	private _previousSelection: string | undefined = undefined;
+	private _previousSelectionPosition: IBufferRange | undefined = undefined;
+
+	// protected readonly _logService: ITerminalLogService
+
 	constructor(
 		private readonly _ctx: ITerminalContributionContext | IDetachedCompatibleTerminalContributionContext,
 		@IClipboardService private readonly _clipboardService: IClipboardService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@INotificationService private readonly _notificationService: INotificationService,
+		@ITerminalLogService private readonly _logService: ITerminalLogService,
 		@ITerminalConfigurationService private readonly _terminalConfigurationService: ITerminalConfigurationService,
 	) {
 		super();
+		logService = _logService;
+		// this._logService = _ctx.instance.capabilities.get(TerminalCapability.LogService) ?? _instantiationService.createInstance(ITerminalLogService);
 	}
 
 	notify(event: string) {
-		this._notificationService.info(event);
-		event = '[' + (new Date()).toISOString() + '] ' + event;
-		const text = fs.readFileSync('C:\\Users\\kenne\\vscode-paste.log').toString() + event + '\n';
-		fs.writeFileSync('C:\\Users\\kenne\\vscode-paste.log', new TextEncoder().encode(text));
+		this._logService.info('[clipboard] ' + event);
 	}
 
 	xtermReady(xterm: IXtermTerminal & { raw: RawXtermTerminal }): void {
+		this.notify('xtermReady');
 		this._xterm = xterm;
 		// TODO: This should be a different event on xterm, copying html should not share the requesting run command event
-		this._register(xterm.onDidRequestCopyAsHtml(e => this.copySelection(true, e.command)));
-		this._register(xterm.raw.onSelectionChange(async () => {
+		this._register(xterm.onDidRequestCopyAsHtml(e => {
+			this.notify('onDidRequestCopyAsHtml');
+			return this.copySelection(true, e.command);
+		}));
+		this._register(xterm.raw.onWriteParsed(async (e) => {
+			this.notify('onWriteParsed');
+		}));
+		this._register(xterm.raw.onData(async (e) => {
+			this.notify('onData');
+		}));
+		this._register(xterm.raw.onRender(async (e) => {
+			this.notify('onRender e=' + JSON.stringify(e) + ', hasSelection=' + xterm.raw.hasSelection() + ', selection=' + xterm.raw.getSelection());
+		}));
+		this._register(xterm.raw.onBinary(async (e) => {
+			this.notify('onBinary');
+		}));
+		this._register(xterm.raw.onBell(async () => {
+			this.notify('onBell');
+		}));
+		this._register(xterm.raw.onCursorMove(async () => {
+			this.notify('onCursorMove');
+		}));
+		this._register(xterm.raw.onKey(async (e) => {
+			this.notify('onKey key=' + e.key);
+		}));
+		this._register(xterm.raw.onLineFeed(async () => {
+			this.notify('onLineFeed');
+		}));
+		this._register(xterm.raw.onResize(async () => {
+			this.notify('onResize');
+		}));
+		this._register(xterm.raw.onScroll(async () => {
+			this.notify('onScroll');
+		}));
+		this._register(xterm.raw.onTitleChange(async () => {
+			this.notify('onTitleChange');
+		}));
+
+		// this._register(dom.addDisposableListener(xterm.raw.element, 'keydown', (e: MouseEvent) => {
+		// 	this._logService.info('[terminalInstance] keydown.1');
+		// 	this._isKeydown = true;
+		// 	const listener = dom.addDisposableListener(xterm.raw.element!.ownerDocument, 'keyup', () => {
+
+		// 		this._logService.info('[terminalInstance] keydown.2 (keyup)');
+		// 		this._isKeydown = false;
+		// 		// Delay with a setTimeout to allow the mouseup to propagate through the DOM
+		// 		// before evaluating the new selection state.
+
+		// 		listener.dispose();
+		// 	});
+
+		// }));
+
+		// this._register(xterm.raw.onSelectionChange(async () => {
+		this._register(xterm.onDidChangeSelection(async () => {
+			this.notify('copySelection.1');
 			if (this._configurationService.getValue(TerminalSettingId.CopyOnSelection)) {
 				// this._notificationService.info('copySelection.1 triggered by selection change override=' + this._overrideCopySelection + ', hasSelection=' + this._ctx.instance.hasSelection());
 				this.notify('copySelection.2 triggered by selection change override=' + this._overrideCopySelection + ', hasSelection=' + this._ctx.instance.hasSelection());
 				if (this._overrideCopySelection === false) {
+					this.notify('copySelection.3 - copy on selection override is false, not copying');
 					// this._overrideCopyOnSelectionDisposable?.dispose();
 					return;
 				}
+				this.notify('      _previousSelection=' + this._previousSelection);
+				this.notify('xterm.raw.getSelection()=' + xterm.raw.getSelection());
+				this.notify('      _previousSelectionPosition=' + JSON.stringify(this._previousSelectionPosition));
+				this.notify('xterm.raw.getSelectionPosition()=' + JSON.stringify(xterm.raw.getSelectionPosition()));
+				if (xterm.raw.getSelection() === this._previousSelection
+					&& JSON.stringify(xterm.raw.getSelectionPosition()) === JSON.stringify(this._previousSelectionPosition)) {
+					this.notify('copySelection.4 - return as selection has not changed');
+					return;
+				}
 				if (this._ctx.instance.hasSelection()) {
+					this.notify('copySelection.5 - copying selection');
+					this._previousSelection = xterm.raw.getSelection();
+					this._previousSelectionPosition = xterm.raw.getSelectionPosition();
 					await this.copySelection();
 				}
 			}
@@ -89,6 +162,7 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 	}
 
 	async copySelection(asHtml?: boolean, command?: ITerminalCommand): Promise<void> {
+		this.notify('copySelection-1');
 		// TODO: Confirm this is fine that it's no longer awaiting xterm promise
 
 		// this._notificationService.info('Copying selection to clipboard? override=' + this._overrideCopySelection);
@@ -98,17 +172,19 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 		// }
 
 		this._xterm?.copySelection(asHtml, command);
-		this._notificationService.info('new selection=' + this._ctx?.instance.selection);
+		this.notify('copySelection-2 new selection=' + this._ctx?.instance.selection);
 	}
 
 	/**
 	 * Focuses and pastes the contents of the clipboard into the terminal instance.
 	 */
 	async paste(): Promise<void> {
+		this.notify('paste-1');
 		// this._overrideCopyOnSelectionDisposable =
+		// this.overrideCopyOnSelection(false);
 		this.notify('paste-2');
-		this.overrideCopyOnSelection(false);
 		await this._paste(await this._clipboardService.readText());
+		this.notify('paste-3');
 		// .then(() => {
 		// 	this._overrideCopyOnSelectionDisposable?.dispose();
 		// });
@@ -128,7 +204,9 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 	}
 
 	private async _paste(value: string): Promise<void> {
+		this.notify('_paste-1');
 		if (!this._xterm) {
+			this.notify('_paste-1 - missing xterm');
 			return;
 		}
 
@@ -147,6 +225,7 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 		this._ctx.instance.focus();
 
 		this._onWillPaste.fire(currentText);
+		this.notify('paste-4 currentText=' + currentText);
 		this._xterm.raw.paste(currentText);
 		this._onDidPaste.fire(currentText);
 	}
@@ -196,15 +275,15 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 	 * @param value Whether to enable copySelection.
 	 */
 	overrideCopyOnSelection(value: boolean): IDisposable {
-		this._notificationService.info('overrideCopyOnSelection=' + value);
+		this.notify('overrideCopyOnSelection=' + value);
 		if (this._overrideCopySelection !== undefined) {
-			this._notificationService.warn('Cannot set a copy on selection override multiple times');
+			this.notify('Cannot set a copy on selection override multiple times');
 			throw new Error('Cannot set a copy on selection override multiple times');
 		}
 		this._overrideCopySelection = value;
-		this._notificationService.info('this._overrideCopySelection=' + this._overrideCopySelection);
+		this.notify('this._overrideCopySelection=' + this._overrideCopySelection);
 		return toDisposable(() => {
-			this._notificationService.info('Clearing overrideCopyOnSelection');
+			this.notify('Clearing overrideCopyOnSelection');
 			this._overrideCopySelection = undefined;
 		});
 	}
@@ -224,6 +303,7 @@ registerActiveInstanceAction({
 	title: localize2('workbench.action.terminal.copyLastCommand', "Copy Last Command"),
 	precondition: terminalAvailableWhenClause,
 	run: async (instance, c, accessor) => {
+		logService?.info('[clipboard] workbench.action.terminal.copyLastCommand');
 		const clipboardService = accessor.get(IClipboardService);
 		const commands = instance.capabilities.get(TerminalCapability.CommandDetection)?.commands;
 		if (!commands || commands.length === 0) {
@@ -242,6 +322,7 @@ registerActiveInstanceAction({
 	title: localize2('workbench.action.terminal.copyLastCommandOutput', "Copy Last Command Output"),
 	precondition: terminalAvailableWhenClause,
 	run: async (instance, c, accessor) => {
+		logService?.info('[clipboard] workbench.action.terminal.copyLastCommandOutput');
 		const clipboardService = accessor.get(IClipboardService);
 		const commands = instance.capabilities.get(TerminalCapability.CommandDetection)?.commands;
 		if (!commands || commands.length === 0) {
@@ -263,6 +344,7 @@ registerActiveInstanceAction({
 	title: localize2('workbench.action.terminal.copyLastCommandAndOutput', "Copy Last Command and Output"),
 	precondition: terminalAvailableWhenClause,
 	run: async (instance, c, accessor) => {
+		logService?.info('[clipboard] workbench.action.terminal.copyLastCommandAndOutput');
 		const clipboardService = accessor.get(IClipboardService);
 		const commands = instance.capabilities.get(TerminalCapability.CommandDetection)?.commands;
 		if (!commands || commands.length === 0) {
@@ -295,7 +377,10 @@ if (BrowserFeatures.clipboard.writeText) {
 				TerminalContextKeys.textSelectedInFocused,
 			)
 		}],
-		run: (activeInstance) => activeInstance.copySelection()
+		run: (activeInstance) => {
+			logService?.info('[clipboard] workbench.action.terminal.copySelection');
+			return activeInstance.copySelection();
+		}
 	});
 
 	registerActiveXtermAction({
@@ -311,6 +396,7 @@ if (BrowserFeatures.clipboard.writeText) {
 			)
 		}],
 		run: async (xterm) => {
+			logService?.info('[clipboard] workbench.action.terminal.copyAndClearSelection');
 			await xterm.copySelection();
 			xterm.clearSelection();
 		}
@@ -322,7 +408,10 @@ if (BrowserFeatures.clipboard.writeText) {
 		f1: true,
 		category: terminalStrings.actionCategory,
 		precondition: ContextKeyExpr.or(TerminalContextKeys.textSelectedInFocused, ContextKeyExpr.and(terminalAvailableWhenClause, TerminalContextKeys.textSelected)),
-		run: (xterm) => xterm.copySelection(true)
+		run: (xterm) => {
+			logService?.info('[clipboard] workbench.action.terminal.copySelectionAsHtml');
+			return xterm.copySelection(true);
+		}
 	});
 }
 
@@ -341,8 +430,7 @@ if (BrowserFeatures.clipboard.readText) {
 		run: (activeInstance) => {
 			// const overrideCopyOnSelectionDisposable = TerminalClipboardContribution.get(activeInstance)?.overrideCopyOnSelection(false);
 			// TerminalClipboardContribution.get(activeInstance)?.overrideCopyOnSelection(false);
-
-			TerminalClipboardContribution.get(activeInstance)?.notify('paste-1');
+			logService?.info('[clipboard] workbench.action.terminal.paste');
 			return TerminalClipboardContribution.get(activeInstance)?.paste();
 			// .then(() => {
 			// 	overrideCopyOnSelectionDisposable?.dispose();
@@ -362,7 +450,7 @@ if (BrowserFeatures.clipboard.readText && isLinux) {
 			when: TerminalContextKeys.focus
 		}],
 		run: (activeInstance) => {
-
+			logService?.info('[clipboard] workbench.action.terminal.pasteSelection');
 			TerminalClipboardContribution.get(activeInstance)?.notify('paste-4');
 			return TerminalClipboardContribution.get(activeInstance)?.pasteSelection();
 		}

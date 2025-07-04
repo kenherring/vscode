@@ -109,6 +109,9 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	private _shellIntegrationAddon: ShellIntegrationAddon;
 	private _decorationAddon: DecorationAddon;
 
+	private _previousSelection: string | undefined = undefined;
+	private _previousSelectionPosition: { x: number; y: number } | undefined = undefined;
+
 	// Always on dynamicly imported addons
 	private _clipboardAddon?: ClipboardAddonType;
 
@@ -189,6 +192,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	) {
 		super();
 
+		this._logService.info('[xterm] constructor');
 		this._xtermAddonLoader = options.xtermAddonImporter ?? new XtermAddonImporter();
 		this._xtermColorProvider = options.xtermColorProvider;
 		this._capabilities = options.capabilities;
@@ -244,6 +248,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 		this._core = (this.raw as any)._core as IXtermCore;
 
 		this._register(this._configurationService.onDidChangeConfiguration(async e => {
+			this._logService.info('[xtermTerminal] onDidChangeConfiguration');
 			if (e.affectsConfiguration(TerminalSettingId.GpuAcceleration)) {
 				XtermTerminal._suggestedRendererType = undefined;
 			}
@@ -263,8 +268,13 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 
 		// Refire events
 		this._register(this.raw.onSelectionChange(() => {
+			this._logService.info('[xterm] onSelectionChange isFocused=' + this.isFocused);
+			this._logService.info('[xterm] onSelectionChange previousSelection=' + this._previousSelection + ' position=' + this._previousSelectionPosition);
+			this._logService.info('[xterm] onSelectionChange hasSelection=' + this.raw.getSelection() + ' position=' + this.raw.getSelectionPosition());
+
 			this._onDidChangeSelection.fire();
 			if (this.isFocused) {
+				this._logService.info('[xterm] onSelectionChange _anyFocusedTerminalHasSelection set to ' + this.raw.hasSelection());
 				this._anyFocusedTerminalHasSelection.set(this.raw.hasSelection());
 			}
 		}));
@@ -325,9 +335,11 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 
 		this._anyTerminalFocusContextKey = TerminalContextKeys.focusInAny.bindTo(contextKeyService);
 		this._anyFocusedTerminalHasSelection = TerminalContextKeys.textSelectedInFocused.bindTo(contextKeyService);
+		this._logService.info('[xterm] xtermTerminal _anyTerminalFocusContextKey=' + this._anyTerminalFocusContextKey.get());
 	}
 
 	*getBufferReverseIterator(): IterableIterator<string> {
+		this._logService.info('[xterm] getBufferReverseIterator');
 		for (let i = this.raw.buffer.active.length; i >= 0; i--) {
 			const { lineData, lineIndex } = getFullBufferLineAsString(i, this.raw.buffer.active);
 			if (lineData) {
@@ -338,6 +350,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	async getContentsAsHtml(): Promise<string> {
+		this._logService.info('[xterm] getContentsAsHtml');
 		if (!this._serializeAddon) {
 			const Addon = await this._xtermAddonLoader.importAddon('serialize');
 			this._serializeAddon = new Addon();
@@ -348,6 +361,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	async getSelectionAsHtml(command?: ITerminalCommand): Promise<string> {
+		this._logService.info('[xterm] getSelectionAsHtml');
 		if (!this._serializeAddon) {
 			const Addon = await this._xtermAddonLoader.importAddon('serialize');
 			this._serializeAddon = new Addon();
@@ -369,6 +383,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	attachToElement(container: HTMLElement, partialOptions?: Partial<IXtermAttachToElementOptions>): HTMLElement {
+		this._logService.info('[xterm] attachToElement');
 		const options: IXtermAttachToElementOptions = { enableGpu: true, ...partialOptions };
 		if (!this._attached) {
 			this.raw.open(container);
@@ -411,20 +426,25 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	private _setFocused(isFocused: boolean) {
+		this._logService.info('[xterm] _setFocused isFocused=' + isFocused);
 		this._onDidChangeFocus.fire(isFocused);
 		this._anyTerminalFocusContextKey.set(isFocused);
 		this._anyFocusedTerminalHasSelection.set(isFocused && this.raw.hasSelection());
+		this._logService.info('[xterm] _setFocused _anyTerminalFocusContextKey=' + this._anyTerminalFocusContextKey.get());
 	}
 
 	write(data: string | Uint8Array, callback?: () => void): void {
+		this._logService.info('[xterm] write');
 		this.raw.write(data, callback);
 	}
 
 	resize(columns: number, rows: number): void {
+		this._logService.info('[xterm] resize');
 		this.raw.resize(columns, rows);
 	}
 
 	updateConfig(): void {
+		this._logService.info('[xterm] updateConfig');
 		const config = this._terminalConfigurationService.config;
 		this.raw.options.altClickMovesCursor = config.altClickMovesCursor;
 		this._setCursorBlink(config.cursorBlinking);
@@ -472,23 +492,28 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	forceRedraw() {
+		this._logService.info('[xterm] forceRedraw');
 		this.raw.clearTextureAtlas();
 	}
 
 	clearDecorations(): void {
+		this._logService.info('[xterm] clearDecorations');
 		this._decorationAddon?.clearDecorations();
 	}
 
 	forceRefresh() {
+		this._logService.info('[xterm] forceRefresh');
 		this._core.viewport?._innerRefresh();
 	}
 
 	async findNext(term: string, searchOptions: ISearchOptions): Promise<boolean> {
+		this._logService.info('[xterm] findNext');
 		this._updateFindColors(searchOptions);
 		return (await this._getSearchAddon()).findNext(term, searchOptions);
 	}
 
 	async findPrevious(term: string, searchOptions: ISearchOptions): Promise<boolean> {
+		this._logService.info('[xterm] findPrevious');
 		this._updateFindColors(searchOptions);
 		return (await this._getSearchAddon()).findPrevious(term, searchOptions);
 	}
@@ -519,6 +544,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 
 	private _searchAddonPromise: Promise<SearchAddonType> | undefined;
 	private _getSearchAddon(): Promise<SearchAddonType> {
+		this._logService.info('[xterm] _getSearchAddon');
 		if (!this._searchAddonPromise) {
 			this._searchAddonPromise = this._xtermAddonLoader.importAddon('search').then((AddonCtor) => {
 				if (this._store.isDisposed) {
@@ -527,6 +553,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 				this._searchAddon = new AddonCtor({ highlightLimit: XtermTerminalConstants.SearchHighlightLimit });
 				this.raw.loadAddon(this._searchAddon);
 				this._searchAddon.onDidChangeResults((results: { resultIndex: number; resultCount: number }) => {
+					this._logService.info('[xterm] _getSearchAddon onDidChangeResults', results);
 					this._lastFindResult = results;
 					this._onDidChangeFindResults.fire(results);
 				});
@@ -537,10 +564,12 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	clearSearchDecorations(): void {
+		this._logService.info('[xterm] clearSearchDecorations');
 		this._searchAddon?.clearDecorations();
 	}
 
 	clearActiveSearchDecoration(): void {
+		this._logService.info('[xterm] clearActiveSearchDecoration');
 		this._searchAddon?.clearActiveDecoration();
 	}
 
@@ -609,6 +638,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	clearBuffer(): void {
+		this._logService.info('[xterm] clearBuffer');
 		this.raw.clear();
 		// xterm.js does not clear the first prompt, so trigger these to simulate
 		// the prompt being written
@@ -618,14 +648,17 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	hasSelection(): boolean {
+		this._logService.info('[xterm] hasSelection');
 		return this.raw.hasSelection();
 	}
 
 	clearSelection(): void {
+		this._logService.info('[xterm] clearSelection');
 		this.raw.clearSelection();
 	}
 
 	selectMarkedRange(fromMarkerId: string, toMarkerId: string, scrollIntoView = false) {
+		this._logService.info('[xterm] selectMarkedRange', fromMarkerId, toMarkerId, scrollIntoView);
 		const detectionCapability = this.shellIntegration.capabilities.get(TerminalCapability.BufferMarkDetection);
 		if (!detectionCapability) {
 			return;
@@ -644,15 +677,18 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	selectAll(): void {
+		this._logService.info('[xterm] selectAll');
 		this.raw.focus();
 		this.raw.selectAll();
 	}
 
 	focus(): void {
+		this._logService.info('[xterm] focus');
 		this.raw.focus();
 	}
 
 	async copySelection(asHtml?: boolean, command?: ITerminalCommand): Promise<void> {
+		this._logService.info('[xterm] copySelection');
 		this._notificationService.info('xterm.copySelection asHtml=' + asHtml + ', command=' + command);
 		if (this.hasSelection() || (asHtml && command)) {
 			if (asHtml) {
@@ -858,6 +894,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	}
 
 	refresh() {
+		this._logService.info('[xterm] refresh');
 		this._updateTheme();
 		this._decorationAddon.refreshLayouts();
 	}
@@ -875,6 +912,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	_writeText(data: string): void {
+		this._logService.info('[xterm] _writeText');
 		this.raw.write(data);
 	}
 
